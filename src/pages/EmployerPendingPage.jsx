@@ -1,6 +1,6 @@
 import {useEffect, useState} from "react";
 
-import {collection, doc, onSnapshot, query, setDoc, updateDoc, where} from "firebase/firestore";
+import {collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, updateDoc, where, serverTimestamp} from "firebase/firestore";
 
 import db from "../firebase/firestore";
 
@@ -10,17 +10,12 @@ export default function EmployerPendingPage() {
 
     useEffect(() => {
 
-        const q = query(
-            collection(db, "employer_verifications"),
-
-            where("submissionStatus", "==", "PENDING")
-        );
+        const q = query(collection(db, "employer_verifications"), where("submissionStatus", "==", "PENDING"));
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
 
             const data = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
+                id: doc.id, ...doc.data()
             }));
 
             setEmployers(data);
@@ -35,55 +30,87 @@ export default function EmployerPendingPage() {
 
         try {
 
-            // employer_verifications
-            await updateDoc(
-                doc(db, "employer_verifications", employer.id),
-                {
-                    submissionStatus: "VERIFIED"
-                }
-            );
+            // ========================================
+            // EMPLOYER VERIFICATION
+            // ========================================
 
-            // users
-            // users
-            await updateDoc(
-                doc(db, "users", employer.id),
-                {
-                    userVerified: true
-                }
-            );
+            await updateDoc(doc(db, "employer_verifications", employer.id), {
+                submissionStatus: "VERIFIED"
+            });
 
-            // employers profile
-            await setDoc(
-                doc(db, "employers", employer.id),
-                {
-                    uid: employer.id,
+            // ========================================
+            // USER VERIFIED
+            // ========================================
 
-                    businessName:
-                        employer.businessName || "",
+            await updateDoc(doc(db, "users", employer.id), {
+                userVerified: true
+            });
 
-                    businessCategory:
-                        employer.businessCategory || "",
+            // ========================================
+            // TRUST SCORE + TRUST LOG
+            // CHỈ THỰC HIỆN 1 LẦN
+            // ========================================
 
-                    businessDescription:
-                        employer.businessDescription || "",
+            const trustLogQuery = query(collection(db, "trust_logs"), where("userUid", "==", employer.id), where("actionType", "==", "EMPLOYER_VERIFIED"));
 
-                    businessAddressText:
-                        employer.businessAddressText || "",
+            const trustLogSnapshot = await getDocs(trustLogQuery);
 
-                    businessLocationUrl:
-                        employer.businessLocationUrl || "",
+            const alreadyRewarded = !trustLogSnapshot.empty;
 
-                    businessStoreFrontImageUrl:
-                        employer.businessStoreFrontImageUrl || "",
+            if (!alreadyRewarded) {
 
-                    // eslint-disable-next-line react-hooks/purity
-                    createdAt: Date.now(),
+                const userDoc = await getDoc(doc(db, "users", employer.id));
 
-                    // eslint-disable-next-line react-hooks/purity
-                    updatedAt: Date.now()
-                },
-                {merge: true}
-            );
+                const currentTrust = userDoc.data()?.trustScore || 0;
+
+                await updateDoc(doc(db, "users", employer.id), {
+                    trustScore: currentTrust + 30
+                });
+
+                const trustLogRef = doc(collection(db, "trust_logs"));
+
+                await setDoc(trustLogRef, {
+                    trustLogId: trustLogRef.id,
+
+                    userUid: employer.id,
+
+                    actionType: "EMPLOYER_VERIFIED",
+
+                    changeAmount: 30,
+
+                    severity: "LOW",
+
+                    description: "Doanh nghiệp được xác thực",
+
+                    createdAt:serverTimestamp()
+                });
+            }
+
+            // ========================================
+            // CREATE EMPLOYER PROFILE
+            // ========================================
+
+            await setDoc(doc(db, "employers", employer.id), {
+                uid: employer.id,
+
+                businessName: employer.businessName || "",
+
+                businessCategory: employer.businessCategory || "",
+
+                businessDescription: employer.businessDescription || "",
+
+                businessAddressText: employer.businessAddressText || "",
+
+                businessLocationUrl: employer.businessLocationUrl || "",
+
+                businessStoreFrontImageUrl: employer.businessStoreFrontImageUrl || "",
+
+                createdAt: serverTimestamp(),
+
+                updatedAt: serverTimestamp()
+            }, {
+                merge: true
+            });
 
             alert("Approved successfully");
 
@@ -100,12 +127,9 @@ export default function EmployerPendingPage() {
 
         try {
 
-            await updateDoc(
-                doc(db, "employer_verifications", id),
-                {
-                    submissionStatus: "REJECTED"
-                }
-            );
+            await updateDoc(doc(db, "employer_verifications", id), {
+                submissionStatus: "REJECTED"
+            });
 
             alert("Rejected");
 
@@ -123,74 +147,56 @@ export default function EmployerPendingPage() {
 
             <h1>Employer Pending</h1>
 
-            {
-                employers.map((employer) => (
+            {employers.map((employer) => (
 
-                    <div
-                        key={employer.id}
+                <div
+                    key={employer.id}
+                    style={{
+                        border: "1px solid gray", padding: "16px", marginBottom: "16px", borderRadius: "12px"
+                    }}
+                >
+
+                    <h2>
+                        {employer.businessName}
+                    </h2>
+
+                    <p>
+                        Category: {employer.businessCategory}
+                    </p>
+
+                    <p>
+                        Address: {employer.businessAddressText}
+                    </p>
+
+                    <p>
+                        Status: {employer.submissionStatus}
+                    </p>
+
+                    <img
+                        src={employer.businessStoreFrontImageUrl}
+                        alt=""
+                        width="250"
+                    />
+
+                    <br/>
+                    <br/>
+
+                    <button
+                        onClick={() => approveEmployer(employer)}
+                    >
+                        ✅ Approve
+                    </button>
+
+                    <button
+                        onClick={() => rejectEmployer(employer.id)}
                         style={{
-                            border: "1px solid gray",
-                            padding: "16px",
-                            marginBottom: "16px",
-                            borderRadius: "12px"
+                            marginLeft: "10px"
                         }}
                     >
+                        ❌ Reject
+                    </button>
 
-                        <h2>
-                            {employer.businessName}
-                        </h2>
+                </div>))}
 
-                        <p>
-                            Category:
-                            {" "}
-                            {employer.businessCategory}
-                        </p>
-
-                        <p>
-                            Address:
-                            {" "}
-                            {employer.businessAddressText}
-                        </p>
-
-                        <p>
-                            Status:
-                            {" "}
-                            {employer.submissionStatus}
-                        </p>
-
-                        <img
-                            src={
-                                employer.businessStoreFrontImageUrl
-                            }
-                            alt=""
-                            width="250"
-                        />
-
-                        <br/><br/>
-
-                        <button
-                            onClick={() =>
-                                approveEmployer(employer)
-                            }
-                        >
-                            ✅ Approve
-                        </button>
-
-                        <button
-                            onClick={() =>
-                                rejectEmployer(employer.id)
-                            }
-                            style={{
-                                marginLeft: "10px"
-                            }}
-                        >
-                            ❌ Reject
-                        </button>
-
-                    </div>
-                ))
-            }
-
-        </div>
-    );
+        </div>);
 }
