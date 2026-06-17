@@ -1,7 +1,4 @@
 import { getFirestore } from "firebase/firestore";
+import app from "./firebaseConfig"; // Hoặc "../firebaseConfig" tùy vị trí file này
 
-import app from "./firebaseConfig";
-
-const db = getFirestore(app);
-
-export default db;
+export const db = getFirestore(app);
